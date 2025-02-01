@@ -3,27 +3,34 @@ from torch import nn
 
 
 class RotaryPositionalEmbeddings(nn.Module):
-    def __init__(self, base: int):
-        self.base = base
+    def __init__(self, dim: int, max_seqlen: int, freq: int=500000):
+        super().__init__()
+        self.dim = dim
+        self.max_seqlen = max_seqlen
+        self.freq = freq
+        
         self.cos_cached = None
         self.sin_cached = None
+        self._build_cache()
     
-    def _build_cache(self, x):
-        _, seqlen, d = x.shape
+    def _build_cache(self):
+        D = self.dim
+        exponent = -2 * torch.arange(1, D/2 + 1).repeat_interleave(2) / D
+        w = torch.pow(self.freq, exponent) # (D)
         
-        if self.cos_cached is not None and seqlen <= self.cos_cached.shape[0]:
-            return
+        pos = torch.arange(1, self.max_seqlen + 1).unsqueeze(1) # (N, 1)
+        theta = w.unsqueeze(0) * pos # (N, D)
+        
+        self.cos_cached = torch.cos(theta)
+        self.sin_cached = torch.sin(theta)
+    
+    def forward(self, x, start_pos: int):
+        seqlen = x.shape[0]
 
-        exp = torch.arange(0, d, 2).float() / d
-        theta = 1.0 / torch.power(self.base, exp).to(x.device)
-        seq_idx = torch.arange(seqlen, device=x.device).float().to(x.device)
-        idx_theta = torch.einsum('n,d->nd', seq_idx, theta)
-        idx_theta2 = torch.cat([idx_theta, idx_theta], dim=1)
-        
-        self.cos_cached = idx_theta2.cos()[:, None, None, :]
-        self.sin_cached = idx_theta2.sin()[:, None, None, :]
-    
-    def forward(self, x):
-        split = x.shape[-1] // 2
-        neg_half_x = torch.cat([-x[..., split:], x[..., :split]], dim=-1)
-        return (x * self.cos_cached[:x.shape[0]]) + (neg_half_x * self.sin_cached[:x.shape[0]])
+        x2 = x.view(*x.shape[:-1], int(self.dim/2), 2).clone()
+        x2[..., 1] = -x2[..., 1]
+        x2 = x2.flip(dims=[-1]).view(x.shape)
+
+        cos = x * self.cos_cached[start_pos : start_pos + seqlen, :].unsqueeze(0).unsqueeze(2)
+        sin = x2 * self.sin_cached[start_pos : start_pos + seqlen, :].unsqueeze(0).unsqueeze(2)
+        return cos + sin

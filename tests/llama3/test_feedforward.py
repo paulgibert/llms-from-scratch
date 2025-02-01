@@ -2,7 +2,6 @@ import torch
 from llama3.feedforward import SWIGLUFeedForward
 
 
-
 def test_SWIGLUFeedForward():
     """
     Check that SWIGLUFeedForward outputs the correct shape.

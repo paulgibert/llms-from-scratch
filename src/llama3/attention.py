@@ -4,31 +4,6 @@ from torch.nn import functional as F
 from llama3.positional_embeddings import RotaryPositionalEmbeddings
 
 
-def precompute_freqs_cis(dim, end, theta = 10000.0):
-    freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
-    t = torch.arange(end, device=freqs.device, dtype=torch.float32)
-    freqs = torch.outer(t, freqs)
-    freqs_cis = torch.polar(torch.ones_like(freqs), freqs)  # complex64
-    return freqs_cis
-
-
-def reshape_for_broadcast(freqs_cis, x):
-    ndim = x.ndim
-    assert 0 <= 1 < ndim
-    assert freqs_cis.shape == (x.shape[1], x.shape[-1])
-    shape = [d if i == 1 or i == ndim - 1 else 1 for i, d in enumerate(x.shape)]
-    return freqs_cis.view(*shape)
-
-
-def apply_rotary_emb(xq, xk, freqs_cis):
-    xq_ = torch.view_as_complex(xq.float().reshape(*xq.shape[:-1], -1, 2))
-    xk_ = torch.view_as_complex(xk.float().reshape(*xk.shape[:-1], -1, 2))
-    freqs_cis = reshape_for_broadcast(freqs_cis, xq_)
-    xq_out = torch.view_as_real(xq_ * freqs_cis).flatten(3)
-    xk_out = torch.view_as_real(xk_ * freqs_cis).flatten(3)
-    return xq_out.type_as(xq), xk_out.type_as(xk)
-
-
 class MultiHeadGroupedQueryAttention(nn.Module):
     """
     Implements multi head grouped query attention used in Llama3.
@@ -65,11 +40,13 @@ class MultiHeadGroupedQueryAttention(nn.Module):
         self.wk = nn.Linear(model_dim, head_dim * n_kv_heads, bias=False)
         self.wv = nn.Linear(model_dim, head_dim * n_kv_heads, bias=False)
         self.wo = nn.Linear(head_dim * n_heads, model_dim, bias=False)
+        
+        self.rope = RotaryPositionalEmbeddings(head_dim, max_seqlen)
                 
         self.k_cache = torch.zeros(max_bsz, max_seqlen, n_kv_heads, head_dim)
         self.v_cache = torch.zeros(max_bsz, max_seqlen, n_kv_heads, head_dim)
         
-    def forward(self, x, pos: int, freqs_cis, mask):
+    def forward(self, x, pos: int, mask):
         bsz, seqlen, _ = x.shape
         queries, keys, values = self.wq(x), self.wk(x), self.wv(x) # (bsz, seqlen, head_dim * n_heads), (bsz, seqlen, head_dim * n_kv_heads), (bsz, seqlen, head_dim * n_kv_heads)
         
@@ -78,7 +55,8 @@ class MultiHeadGroupedQueryAttention(nn.Module):
         values = values.view(bsz, seqlen, self.n_kv_heads, self.head_dim)   # (..., ..., n_kv_heads * head_dim) -> (..., ..., n_kv_heads, head_dim)
         
         # Encode position with RoPE
-        queries, keys = apply_rotary_emb(queries, keys, freqs_cis=freqs_cis)
+        queries = self.rope(queries, pos)
+        keys = self.rope(keys, pos)
         
         # On the first call, the k and v caches need to be moved to the correct device
         self.k_cache = self.k_cache.to(keys.device)

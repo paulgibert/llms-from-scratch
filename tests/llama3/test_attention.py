@@ -15,7 +15,7 @@ def test_MultiHeadGroupedAttention():
     max_seqlen = 64
     
     model = MultiHeadGroupedQueryAttention(model_dim, head_dim, n_heads,
-                                         n_kv_heads, max_bsz, max_seqlen)
+                                           n_kv_heads, max_bsz, max_seqlen)
     x = torch.rand(12, 48, model_dim)
     freqs_cis = torch.randn(48, 4)
     mask = torch.rand(48, 48)
