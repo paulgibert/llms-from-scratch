@@ -2,7 +2,6 @@ import torch
 from llama3.attention import MultiHeadGroupedQueryAttention
 
 
-
 def test_MultiHeadGroupedAttention():
     """
     Check that MultiHeadGroupedAttention outputs the correct shape.
@@ -17,7 +16,6 @@ def test_MultiHeadGroupedAttention():
     model = MultiHeadGroupedQueryAttention(model_dim, head_dim, n_heads,
                                            n_kv_heads, max_bsz, max_seqlen)
     x = torch.rand(12, 48, model_dim)
-    freqs_cis = torch.randn(48, 4)
     mask = torch.rand(48, 48)
-    output = model(x, 0, freqs_cis, mask) # TODO: Test positional encoding
+    output = model(x, 0, mask) # TODO: What about start pos != 0?
     assert(output.shape == (12, 48, model_dim))

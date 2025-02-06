@@ -53,11 +53,11 @@ class MultiHeadGroupedQueryAttention(nn.Module):
         queries = queries.view(bsz, seqlen, self.n_heads, self.head_dim)    # (..., ..., n_heads * head_dim) -> (..., ..., n_heads, head_dim)
         keys = keys.view(bsz, seqlen, self.n_kv_heads, self.head_dim)       # (..., ..., n_kv_heads * head_dim) -> (..., ..., n_kv_heads, head_dim)
         values = values.view(bsz, seqlen, self.n_kv_heads, self.head_dim)   # (..., ..., n_kv_heads * head_dim) -> (..., ..., n_kv_heads, head_dim)
-        
+ 
         # Encode position with RoPE
         queries = self.rope(queries, pos)
         keys = self.rope(keys, pos)
-        
+
         # On the first call, the k and v caches need to be moved to the correct device
         self.k_cache = self.k_cache.to(keys.device)
         self.v_cache = self.v_cache.to(values.device)
@@ -69,7 +69,7 @@ class MultiHeadGroupedQueryAttention(nn.Module):
         # Retrieve all keys and values from the caches
         keys = self.k_cache[:bsz, : pos + seqlen]
         values = self.v_cache[:bsz, : pos + seqlen]
-        
+
         # Repeat key and value heads to match number of query heads
         repeats = int(self.n_heads / self.n_kv_heads)
         keys = torch.repeat_interleave(keys, repeats=repeats, dim=2)        # (..., ..., n_kv_heads, ...) -> (..., ..., n_heads, ...)
@@ -80,6 +80,9 @@ class MultiHeadGroupedQueryAttention(nn.Module):
         keys = keys.transpose(1, 2)         # (..., seqlen, n_heads, ...) -> (..., n_heads, seqlen, ...)
         values = values.transpose(1, 2)     # (..., seqlen, n_heads, ...) -> (..., n_heads, seqlen, ...)
 
+        print(queries.shape)
+        print(keys.shape)
+        print(values.shape)
         out = F.scaled_dot_product_attention(queries, keys, values, attn_mask=mask) # (bsz, n_heads, seqlen, head_dim)
         
         # Torch might complain if we don't use `contiguous`
